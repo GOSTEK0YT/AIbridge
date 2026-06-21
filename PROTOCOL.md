@@ -1,51 +1,30 @@
-# AI Bridge Protocol v0.2
+# AI Bridge Cloud Protocol v0.3
 
-Domyślny adres: `http://127.0.0.1:32145`
+Adres usługi: `https://ai-bridge-cloud.onrender.com`
 
-Każde żądanie musi zawierać nagłówek:
+## Plugin Roblox Studio
+
+1. `POST /v1/plugins/register` zwraca token pluginu i kod parowania.
+2. `GET /v1/plugin/poll` odbiera polecenia. Wymaga tokenu pluginu Bearer.
+3. `POST /v1/plugin/result/{command_id}` odsyła wynik do chmury.
+
+## Klient AI
+
+1. `POST /v1/pair/claim` wymienia jednorazowy kod na prywatny token klienta.
+2. `POST /v1/client/commands` kolejkuje polecenie.
+3. `GET /v1/client/commands/{command_id}` zwraca stan i wynik.
+
+Każde żądanie klienta po sparowaniu zawiera:
 
 ```text
-X-Bridge-Token: <local token>
+Authorization: Bearer <client token>
 ```
 
-## Sprawdzenie połączenia
+## MCP
 
-```http
-GET /health
-```
+Zdalny endpoint MCP znajduje się pod `/mcp` i używa tego samego nagłówka Bearer.
+Udostępnia narzędzia: `ping`, `get_tree`, `create_instance`, `set_properties`,
+`move_instance` i `delete_instance`.
 
-## Wysłanie polecenia
-
-```http
-POST /command
-Content-Type: application/json
-
-{
-  "client": "My AI Agent",
-  "action": "create_instance",
-  "args": {
-    "parent": "game/Workspace",
-    "className": "Part",
-    "name": "AIBlock"
-  }
-}
-```
-
-Odpowiedź zawiera `command_id`. Klient odpytuje o rezultat:
-
-```http
-GET /result/<command_id>
-```
-
-## Operacje v0.2
-
-- `ping`
-- `get_tree`
-- `create_instance`
-- `set_properties`
-- `move_instance`
-- `delete_instance`
-
-Serwer i protokół nie wymagają konkretnego dostawcy AI. Integracja może używać
-CLI, własnego agenta, aplikacji desktopowej albo bezpośrednich żądań HTTP.
-Pole `client` jest opcjonalną nazwą wyświetlaną użytkownikowi w panelu Studio.
+Kod parowania wygasa po 10 minutach i można go użyć tylko raz. Token pluginu i
+token klienta są niezależne; klient AI nigdy nie otrzymuje sekretu pluginu.

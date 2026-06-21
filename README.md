@@ -2,57 +2,39 @@
 
 **Connect Roblox Studio to any AI.**
 
-AI Bridge to lokalny, tokenizowany most pomiędzy Roblox Studio i dowolnym
-klientem AI, który potrafi wysyłać żądania HTTP lub uruchomić nasze CLI. Codex,
-Claude, Gemini i lokalne modele korzystają z tego samego neutralnego protokołu.
+AI Bridge jest neutralnym mostem pomiędzy Roblox Studio a klientami AI. Plugin
+łączy się bezpośrednio z bezpiecznym serwerem HTTPS, więc użytkownik nie musi
+instalować aplikacji `.exe` ani uruchamiać lokalnego serwera.
 
-## Uruchomienie
+## Jak to działa
 
-Najprościej uruchom `start_ai_bridge.bat`. Otworzy się aplikacja AI Bridge Desktop,
-która uruchamia lokalny serwer, pokazuje połączenie ze Studio i przygotowuje
-konfigurację MCP dla klientów AI.
+1. Plugin rejestruje Studio w chmurze i pokazuje jednorazowy kod.
+2. Użytkownik wpisuje kod na stronie `/connect`.
+3. Strona wydaje prywatny token klienta AI.
+4. AI korzysta ze zdalnego MCP lub neutralnego REST API.
+5. Plugin odbiera dozwolone polecenia, wykonuje je w Studio i odsyła wynik.
 
-Uruchomienie ręczne:
+Pełna instrukcja: [QUICKSTART.md](QUICKSTART.md). Protokół:
+[PROTOCOL.md](PROTOCOL.md).
 
-1. Uruchom lokalny serwer:
+## Obsługiwane operacje
 
-   ```powershell
-   python .\server.py
-   ```
+- odczyt drzewa instancji,
+- tworzenie instancji,
+- zmiana właściwości,
+- przenoszenie i usuwanie instancji,
+- test połączenia.
 
-2. Token jest zapisywany przez serwer w `.bridge-token`.
-3. W Roblox Studio włącz `Plugin Debugging Enabled`, utwórz `Script` w
-   `ServerStorage` i wklej kod pluginu.
-4. Zaznacz skrypt i wybierz **Plugins → Save as Local Plugin**.
-5. Włącz **Game Settings → Security → Allow HTTP Requests**.
-6. Otwórz panel **AI Bridge**. Plugin automatycznie sparuje się z uruchomioną
-   aplikacją desktopową i zapamięta połączenie lokalnie.
+Plugin celowo nie wykonuje dowolnego kodu Luau przesłanego przez internet.
 
-Test:
+## Usługi
 
-```powershell
-python .\bridge_cli.py ping
-```
-
-## Klienci AI
-
-Plugin nie zna marki ani modelu AI. Każdy klient łączy się z lokalnym serwerem
-przez opisany w `PROTOCOL.md` protokół. Dzięki temu jedna instalacja pluginu może
-obsługiwać różne aplikacje i agentów bez zmiany kodu w Roblox Studio.
-
-`mcp_server.py` jest lokalnym adapterem MCP stdio. Aplikacja desktopowa potrafi
-skopiować gotową komendę dla Codexa, konfigurację dla Claude oraz ścieżkę serwera
-dla innych klientów MCP. ChatGPT wymaga dodatkowo bezpiecznego endpointu MCP
-przez HTTPS; surowy port mostu nigdy nie powinien być publikowany w internecie.
+- Strona i parowanie: <https://ai-bridge-cloud.onrender.com/connect>
+- Remote MCP: `https://ai-bridge-cloud.onrender.com/mcp`
+- Schemat dla ChatGPT Actions: <https://ai-bridge-cloud.onrender.com/ai-openapi.json>
+- Dokumentacja API: <https://ai-bridge-cloud.onrender.com/docs>
 
 ## Logo
 
-Główne logo znajduje się w `assets/ai-bridge-logo.png`. Aby użyć go jako ikony
-pluginu w Studio lub Creator Store, trzeba wgrać obraz do Roblox i podstawić
-otrzymany identyfikator `rbxassetid`.
-
-## Bezpieczeństwo
-
-Serwer nasłuchuje wyłącznie na `127.0.0.1`, wymaga tokenu i nie pozwala na
-wykonywanie dowolnego kodu Luau przesłanego przez HTTP. Token nie jest częścią
-publikowanego pluginu; Studio zapisuje go lokalnie dla danego użytkownika.
+Logo produktu znajduje się w `assets/ai-bridge-logo.png`. Ikona pluginu używa
+zasobu Roblox `rbxassetid://95427397446061`.

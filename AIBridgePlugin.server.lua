@@ -1,14 +1,11 @@
 -- AI Bridge: provider-neutral bridge between Roblox Studio and AI clients.
 local HttpService = game:GetService("HttpService")
+local GuiService = game:GetService("GuiService")
 
-local BASE_URL = "http://127.0.0.1:32145"
-local TOKEN = plugin:GetSetting("AIBridgeToken") or ""
-local INSTALL_ID = plugin:GetSetting("AIBridgeInstallId")
-if not INSTALL_ID then
-	INSTALL_ID = HttpService:GenerateGUID(false)
-	plugin:SetSetting("AIBridgeInstallId", INSTALL_ID)
-end
-local POLL_INTERVAL = 0.35
+local BASE_URL = "https://ai-bridge-cloud.onrender.com"
+local TOKEN = plugin:GetSetting("AIBridgeCloudToken") or ""
+local PAIR_CODE = plugin:GetSetting("AIBridgePairCode") or ""
+local POLL_INTERVAL = 1
 local LOGO_ASSET_ID = "rbxassetid://95427397446061"
 
 local toolbar = plugin:CreateToolbar("AI Bridge")
@@ -20,15 +17,14 @@ local toggleButton = toolbar:CreateButton(
 toggleButton.ClickableWhenViewportHidden = true
 
 local running = false
-local pairing = false
 local widgetInfo = DockWidgetPluginGuiInfo.new(
 	Enum.InitialDockState.Right,
 	true,
 	false,
-	300,
-	260,
-	260,
-	220
+	320,
+	320,
+	290,
+	280
 )
 local widget = plugin:CreateDockWidgetPluginGui("AIBridgePanel", widgetInfo)
 widget.Title = "AI Bridge"
@@ -101,7 +97,7 @@ tokenLabel.Position = UDim2.fromOffset(0, 106)
 tokenLabel.Size = UDim2.new(1, 0, 0, 20)
 tokenLabel.BackgroundTransparency = 1
 tokenLabel.Font = Enum.Font.GothamMedium
-tokenLabel.Text = "Pairing is automatic - keep AI Bridge Desktop open"
+tokenLabel.Text = "Pairing code"
 tokenLabel.TextColor3 = Color3.fromRGB(172, 178, 195)
 tokenLabel.TextSize = 12
 tokenLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -114,13 +110,14 @@ tokenInput.BackgroundColor3 = Color3.fromRGB(36, 41, 55)
 tokenInput.BorderSizePixel = 0
 tokenInput.ClearTextOnFocus = false
 tokenInput.Font = Enum.Font.Code
-tokenInput.PlaceholderText = "Paste token from server.py"
+tokenInput.PlaceholderText = "Click Connect to generate a code"
 tokenInput.PlaceholderColor3 = Color3.fromRGB(115, 122, 142)
-tokenInput.Text = TOKEN
+tokenInput.Text = PAIR_CODE
 tokenInput.TextColor3 = Color3.fromRGB(226, 231, 244)
-tokenInput.TextSize = 12
-tokenInput.TextXAlignment = Enum.TextXAlignment.Left
-tokenInput.Visible = false
+tokenInput.TextSize = 22
+tokenInput.TextXAlignment = Enum.TextXAlignment.Center
+tokenInput.Visible = true
+tokenInput.TextEditable = false
 tokenInput.Parent = root
 Instance.new("UICorner", tokenInput).CornerRadius = UDim.new(0, 8)
 
@@ -128,6 +125,19 @@ local tokenPadding = Instance.new("UIPadding")
 tokenPadding.PaddingLeft = UDim.new(0, 10)
 tokenPadding.PaddingRight = UDim.new(0, 10)
 tokenPadding.Parent = tokenInput
+
+local openPairButton = Instance.new("TextButton")
+openPairButton.Position = UDim2.fromOffset(0, 176)
+openPairButton.Size = UDim2.new(1, 0, 0, 38)
+openPairButton.BackgroundColor3 = Color3.fromRGB(39, 49, 73)
+openPairButton.BorderSizePixel = 0
+openPairButton.Font = Enum.Font.GothamBold
+openPairButton.Text = "Open pairing page"
+openPairButton.TextColor3 = Color3.fromRGB(130, 211, 255)
+openPairButton.TextSize = 13
+openPairButton.Visible = PAIR_CODE ~= ""
+openPairButton.Parent = root
+Instance.new("UICorner", openPairButton).CornerRadius = UDim.new(0, 9)
 
 local connectionButton = Instance.new("TextButton")
 connectionButton.Position = UDim2.new(0, 0, 1, -52)
@@ -160,7 +170,7 @@ local function setStatus(kind, message)
 end
 
 local function headers()
-	return { ["Content-Type"] = "application/json", ["X-Bridge-Token"] = TOKEN }
+	return { ["Content-Type"] = "application/json", ["Authorization"] = "Bearer " .. TOKEN }
 end
 
 local function request(method, path, body)
@@ -177,27 +187,28 @@ local function request(method, path, body)
 end
 
 local function tryPair()
-	if pairing then return false end
-	pairing = true
-	setStatus("connecting", "Looking for AI Bridge Desktop...")
+	setStatus("connecting", "Registering with AI Bridge Cloud...")
 	local ok, response = pcall(function()
 		local result = HttpService:RequestAsync({
-			Url = BASE_URL .. "/plugin/pair",
+			Url = BASE_URL .. "/v1/plugins/register",
 			Method = "POST",
 			Headers = { ["Content-Type"] = "application/json" },
-			Body = HttpService:JSONEncode({ install_id = INSTALL_ID }),
+			Body = HttpService:JSONEncode({ name = "Roblox Studio - " .. game.Name }),
 		})
 		if not result.Success then error("Pairing unavailable") end
 		return HttpService:JSONDecode(result.Body)
 	end)
-	pairing = false
-	if ok and response.ok and response.token then
-		TOKEN = response.token
-		tokenInput.Text = TOKEN
-		plugin:SetSetting("AIBridgeToken", TOKEN)
+	if ok and response.plugin_token and response.pairing_code then
+		TOKEN = response.plugin_token
+		PAIR_CODE = response.pairing_code
+		tokenInput.Text = PAIR_CODE
+		openPairButton.Visible = true
+		plugin:SetSetting("AIBridgeCloudToken", TOKEN)
+		plugin:SetSetting("AIBridgePairCode", PAIR_CODE)
+		setStatus("connecting", "Enter code " .. PAIR_CODE .. " on the pairing page")
 		return true
 	end
-	setStatus("disconnected", "Open AI Bridge Desktop to pair")
+	setStatus("disconnected", "Cloud unavailable - check HTTP requests")
 	return false
 end
 
@@ -311,7 +322,7 @@ local function execute(command)
 end
 
 local function sendResult(id, ok, data)
-	request("POST", "/plugin/result", { id = id, ok = ok, data = data })
+	request("POST", "/v1/plugin/result/" .. id, { ok = ok, data = data })
 end
 
 local function pollLoop()
@@ -319,10 +330,10 @@ local function pollLoop()
 		running = false
 		return
 	end
-	setStatus("connecting", "Connecting to local bridge...")
+	setStatus("connecting", "Connecting to AI Bridge Cloud...")
 	local failures = 0
 	while running do
-		local ok, response = pcall(request, "GET", "/plugin/poll")
+		local ok, response = pcall(request, "GET", "/v1/plugin/poll")
 		if ok and response.command then
 			failures = 0
 			local command = response.command
@@ -331,14 +342,29 @@ local function pollLoop()
 			setStatus("connected", "Command received")
 			local executed, result = pcall(execute, command)
 			pcall(sendResult, command.id, executed, executed and result or tostring(result))
+		elseif ok and response.paired then
+			failures = 0
+			PAIR_CODE = ""
+			tokenInput.Text = "Connected"
+			openPairButton.Visible = false
+			plugin:SetSetting("AIBridgePairCode", "")
+			setStatus("connected", "Cloud connected - waiting for AI")
 		elseif ok then
 			failures = 0
-			setStatus("connected", "Local bridge connected")
+			PAIR_CODE = tostring(response.pairing_code or PAIR_CODE)
+			tokenInput.Text = PAIR_CODE
+			openPairButton.Visible = PAIR_CODE ~= ""
+			plugin:SetSetting("AIBridgePairCode", PAIR_CODE)
+			setStatus("connecting", "Enter code " .. PAIR_CODE .. " on the pairing page")
 		elseif not ok then
 			failures += 1
-			setStatus("connecting", "Bridge unavailable - retrying...")
+			setStatus("connecting", "Cloud unavailable - retrying...")
 			warn("[AI Bridge] " .. tostring(response))
-			if failures >= 4 and tryPair() then failures = 0 end
+			if failures >= 4 then
+				TOKEN = ""
+				plugin:SetSetting("AIBridgeCloudToken", "")
+				if tryPair() then failures = 0 end
+			end
 		end
 		task.wait(POLL_INTERVAL)
 	end
@@ -346,10 +372,6 @@ local function pollLoop()
 end
 
 local function toggleConnection()
-	if not running then
-		TOKEN = tokenInput.Text:gsub("^%s+", ""):gsub("%s+$", "")
-		if TOKEN ~= "" then plugin:SetSetting("AIBridgeToken", TOKEN) end
-	end
 	running = not running
 	if running then
 		print("[AI Bridge] Connecting to " .. BASE_URL)
@@ -361,6 +383,15 @@ local function toggleConnection()
 end
 
 connectionButton.Activated:Connect(toggleConnection)
+
+openPairButton.Activated:Connect(function()
+	if PAIR_CODE == "" then return end
+	local url = BASE_URL .. "/connect?code=" .. PAIR_CODE
+	local ok = pcall(function() GuiService:OpenBrowserWindow(url) end)
+	if not ok then
+		warn("[AI Bridge] Open this URL in your browser: " .. url)
+	end
+end)
 
 toggleButton.Click:Connect(function()
 	widget.Enabled = not widget.Enabled

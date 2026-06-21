@@ -1,27 +1,31 @@
-# AI Bridge — Quick Start
+# AI Bridge — szybki start
 
-## 1. Start the desktop app
+## 1. Zainstaluj plugin w Roblox Studio
 
-Run `AIBridge.exe` and click **Start bridge**.
+1. Włącz **Game Settings → Security → Allow HTTP Requests**.
+2. Zainstaluj plugin zawierający `AIBridgePlugin.server.lua`.
+3. Otwórz panel **AI Bridge** i kliknij **Connect**.
+4. Plugin pokaże sześciocyfrowy kod.
 
-## 2. Install the Roblox Studio plugin
+Nie trzeba instalować ani uruchamiać aplikacji `.exe`.
 
-1. Open Roblox Studio and enable **Plugin Debugging Enabled**.
-2. Insert a `Script` into `ServerStorage`.
-3. Paste the contents of `AIBridgePlugin.lua`.
-4. Select the script and choose **Plugins → Save as Local Plugin**.
-5. Enable **Game Settings → Security → Allow HTTP Requests**.
-6. Open the AI Bridge panel. It pairs with the desktop app automatically while
-   the pairing window is open. No token copying is required.
+## 2. Sparuj Studio
 
-The desktop app should show **Roblox Studio: connected**.
+1. Otwórz <https://ai-bridge-cloud.onrender.com/connect>.
+2. Wpisz kod z pluginu.
+3. Zachowaj wygenerowany prywatny token klienta AI.
 
-## 3. Connect an AI client
+Kod parowania jest jednorazowy. Tokenu klienta nie publikuj i nie wysyłaj innym
+osobom — pozwala on edytować sparowany projekt przez obsługiwane operacje.
 
-- **Codex:** click **Copy setup command** and run the copied command once.
-- **Claude:** click **Copy config** and merge it into Claude's MCP configuration.
-- **Other MCP clients:** use the path shown by **Copy server path**.
-- **ChatGPT:** requires a secure HTTPS MCP endpoint and is not enabled by the
-  local-only 0.3 release.
+## 3. Podłącz AI
 
-Never publish port `32145` directly to the internet.
+- **Klient MCP:** endpoint `https://ai-bridge-cloud.onrender.com/mcp`, nagłówek
+  `Authorization: Bearer <token>`.
+- **ChatGPT Custom GPT:** zaimportuj
+  `https://ai-bridge-cloud.onrender.com/ai-openapi.json` w sekcji Actions,
+  wybierz uwierzytelnianie API Key typu Bearer i wklej token.
+- **Własny agent REST:** użyj endpointów `/v1/client/*` opisanych pod `/docs`.
+
+Plugin obsługuje wyłącznie jawnie dozwolone operacje i nie wykonuje dowolnego
+kodu Luau otrzymanego z internetu.
