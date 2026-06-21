@@ -1,0 +1,17 @@
+.bridge-token
+__pycache__/
+build/
+dist/
+release/
+release-build/
+*.spec
+*.pyc
+.pytest_cache/
+cloud/*.db
+.env
+
+# Local game prototype scripts are not part of the AI Bridge product.
+CoinSystem.server.lua
+CoinUI.client.lua
+CallCenterGame.server.lua
+CallCenterUI.client.lua

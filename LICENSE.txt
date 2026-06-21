@@ -1,0 +1,10 @@
+AI Bridge Proprietary License
+Copyright (c) 2026 AI Bridge. All rights reserved.
+
+This software may be used for personal testing and evaluation. Redistribution,
+resale, modification for redistribution, or removal of AI Bridge branding is not
+permitted without written permission from the copyright owner.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. IN NO EVENT
+SHALL THE COPYRIGHT OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY
+ARISING FROM THE USE OF THE SOFTWARE.

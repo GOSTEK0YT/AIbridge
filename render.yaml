@@ -1,0 +1,23 @@
+databases:
+  - name: ai-bridge-db
+    plan: free
+    databaseName: ai_bridge
+    user: ai_bridge
+
+services:
+  - type: web
+    name: ai-bridge-cloud
+    runtime: python
+    plan: free
+    rootDir: cloud
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-bridge-db
+          property: connectionString
+      - key: AI_BRIDGE_API_KEY
+        generateValue: true
