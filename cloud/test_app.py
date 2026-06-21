@@ -35,13 +35,26 @@ def test_pair_command_roundtrip():
     claimed = client.post("/v1/pair/claim", json={"code": registration["pairing_code"], "client_name": "test-ai"})
     assert claimed.status_code == 200
     client_headers = {"Authorization": "Bearer " + claimed.json()["client_token"]}
+    plugin_headers = {"Authorization": "Bearer " + registration["plugin_token"]}
+
+    another_code = client.post("/v1/plugin/pairing-code", headers=plugin_headers)
+    assert another_code.status_code == 200
+    waiting = client.get("/v1/plugin/poll", headers=plugin_headers).json()
+    assert waiting["pairing_code"] == another_code.json()["pairing_code"]
+    second_claim = client.post("/v1/pair/claim", json={
+        "code": another_code.json()["pairing_code"], "client_name": "second-ai"
+    })
+    assert second_claim.status_code == 200
+    reused = client.post("/v1/pair/claim", json={
+        "code": another_code.json()["pairing_code"], "client_name": "attacker"
+    })
+    assert reused.status_code == 404
 
     created = client.post("/v1/client/commands", headers=client_headers, json={
         "action": "ping",
         "args": {},
     })
     command_id = created.json()["command_id"]
-    plugin_headers = {"Authorization": "Bearer " + registration["plugin_token"]}
     polled = client.get("/v1/plugin/poll", headers=plugin_headers)
     assert polled.json()["command"]["id"] == command_id
     result = client.post(f"/v1/plugin/result/{command_id}", headers=plugin_headers, json={"ok": True, "data": {"place": "Test"}})

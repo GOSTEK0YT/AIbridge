@@ -203,6 +203,7 @@ local function tryPair()
 		PAIR_CODE = response.pairing_code
 		tokenInput.Text = PAIR_CODE
 		openPairButton.Visible = true
+		openPairButton.Text = "Open pairing page"
 		plugin:SetSetting("AIBridgeCloudToken", TOKEN)
 		plugin:SetSetting("AIBridgePairCode", PAIR_CODE)
 		setStatus("connecting", "Enter code " .. PAIR_CODE .. " on the pairing page")
@@ -342,11 +343,20 @@ local function pollLoop()
 			setStatus("connected", "Command received")
 			local executed, result = pcall(execute, command)
 			pcall(sendResult, command.id, executed, executed and result or tostring(result))
+		elseif ok and response.pairing_code then
+			failures = 0
+			PAIR_CODE = tostring(response.pairing_code)
+			tokenInput.Text = PAIR_CODE
+			openPairButton.Visible = true
+			openPairButton.Text = "Open pairing page"
+			plugin:SetSetting("AIBridgePairCode", PAIR_CODE)
+			setStatus("connecting", "Enter code " .. PAIR_CODE .. " on the pairing page")
 		elseif ok and response.paired then
 			failures = 0
 			PAIR_CODE = ""
 			tokenInput.Text = "Connected"
-			openPairButton.Visible = false
+			openPairButton.Visible = true
+			openPairButton.Text = "Pair another AI"
 			plugin:SetSetting("AIBridgePairCode", "")
 			setStatus("connected", "Cloud connected - waiting for AI")
 		elseif ok then
@@ -354,6 +364,7 @@ local function pollLoop()
 			PAIR_CODE = tostring(response.pairing_code or PAIR_CODE)
 			tokenInput.Text = PAIR_CODE
 			openPairButton.Visible = PAIR_CODE ~= ""
+			openPairButton.Text = "Open pairing page"
 			plugin:SetSetting("AIBridgePairCode", PAIR_CODE)
 			setStatus("connecting", "Enter code " .. PAIR_CODE .. " on the pairing page")
 		elseif not ok then
@@ -385,7 +396,17 @@ end
 connectionButton.Activated:Connect(toggleConnection)
 
 openPairButton.Activated:Connect(function()
-	if PAIR_CODE == "" then return end
+	if PAIR_CODE == "" then
+		local ok, response = pcall(request, "POST", "/v1/plugin/pairing-code", {})
+		if not ok or not response.pairing_code then
+			setStatus("disconnected", "Could not generate a new code")
+			return
+		end
+		PAIR_CODE = tostring(response.pairing_code)
+		tokenInput.Text = PAIR_CODE
+		openPairButton.Text = "Open pairing page"
+		plugin:SetSetting("AIBridgePairCode", PAIR_CODE)
+	end
 	local url = BASE_URL .. "/connect?code=" .. PAIR_CODE
 	local ok = pcall(function() GuiService:OpenBrowserWindow(url) end)
 	if not ok then

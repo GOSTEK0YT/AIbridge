@@ -114,7 +114,7 @@ class Command(Base):
 
 
 Base.metadata.create_all(engine)
-app = FastAPI(title="AI Bridge Cloud", version="0.3.0")
+app = FastAPI(title="AI Bridge Cloud", version="0.3.1")
 
 
 def database():
@@ -188,6 +188,15 @@ class RegisterRequest(BaseModel):
 class PairClaim(BaseModel):
     code: str = Field(min_length=6, max_length=6)
     client_name: str = Field(default="AI client", max_length=100)
+
+
+def issue_pairing_code(device: Device, db: Session) -> str:
+    code = pairing_code()
+    while db.scalar(select(Device).where(Device.pairing_code == code, Device.id != device.id, Device.pairing_expires_at > utcnow())):
+        code = pairing_code()
+    device.pairing_code = code
+    device.pairing_expires_at = utcnow() + timedelta(minutes=10)
+    return code
 
 
 class OAuthRegistration(BaseModel):
@@ -270,7 +279,7 @@ def home():
   <div class="status"><span class="dot"></span> Service operational</div>
   <p><a href="/connect">Connect Roblox Studio &rarr;</a></p>
   <p><a href="/docs">Open API documentation</a></p>
-  <small>AI Bridge Cloud v0.3.0</small>
+  <small>AI Bridge Cloud v0.3.1</small>
 </main></body></html>"""
 
 
@@ -298,7 +307,7 @@ document.querySelector('#copy').onclick=async()=>{await navigator.clipboard.writ
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "ai-bridge-cloud", "version": "0.3.0"}
+    return {"ok": True, "service": "ai-bridge-cloud", "version": "0.3.1"}
 
 
 @app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
@@ -466,8 +475,6 @@ def claim_pairing(payload: PairClaim, db: Session = Depends(database)):
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if not device or not expires_at or expires_at < utcnow():
         raise HTTPException(404, "Pairing code is invalid or expired")
-    if device.paired:
-        raise HTTPException(409, "Pairing code has already been used")
     credential_id = str(uuid.uuid4())
     client_secret = secrets.token_urlsafe(32)
     credential = ClientCredential(
@@ -477,6 +484,8 @@ def claim_pairing(payload: PairClaim, db: Session = Depends(database)):
         secret_hash=digest(client_secret),
     )
     device.paired = True
+    device.pairing_code = ""
+    device.pairing_expires_at = utcnow()
     db.add(credential)
     db.commit()
     return {
@@ -488,6 +497,14 @@ def claim_pairing(payload: PairClaim, db: Session = Depends(database)):
     }
 
 
+@app.post("/v1/plugin/pairing-code")
+def plugin_new_pairing_code(authorization: str | None = Header(default=None), db: Session = Depends(database)):
+    device = authenticate_device(authorization, db)
+    code = issue_pairing_code(device, db)
+    db.commit()
+    return {"ok": True, "pairing_code": code, "expires_in": 600}
+
+
 @app.get("/v1/plugin/poll")
 def plugin_poll(authorization: str | None = Header(default=None), db: Session = Depends(database)):
     device = authenticate_device(authorization, db)
@@ -496,8 +513,7 @@ def plugin_poll(authorization: str | None = Header(default=None), db: Session = 
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if not device.paired and expires_at < utcnow():
-        device.pairing_code = pairing_code()
-        device.pairing_expires_at = utcnow() + timedelta(minutes=10)
+        issue_pairing_code(device, db)
     command = db.scalar(
         select(Command)
         .where(Command.device_id == device.id, Command.status == "pending")
@@ -511,7 +527,7 @@ def plugin_poll(authorization: str | None = Header(default=None), db: Session = 
     return {
         "ok": True,
         "paired": device.paired,
-        "pairing_code": None if device.paired else device.pairing_code,
+        "pairing_code": device.pairing_code or None,
         "command": None if not command else {
             "id": command.id,
             "client": command.client,
@@ -575,7 +591,7 @@ async def mcp_endpoint(request: Request, authorization: str | None = Header(defa
         result = {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "AI Bridge", "version": "0.3.0"},
+            "serverInfo": {"name": "AI Bridge", "version": "0.3.1"},
         }
     elif method == "tools/list":
         result = {"tools": MCP_TOOLS}
