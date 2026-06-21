@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
@@ -127,6 +128,41 @@ class CreateCommand(BaseModel):
 class CommandResult(BaseModel):
     ok: bool
     data: object | None = None
+
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def home():
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Bridge Cloud</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+      color: #f7f8ff; font-family: Inter, system-ui, sans-serif;
+      background: radial-gradient(circle at 20% 10%, #152956 0, transparent 35%), #070a13; }
+    main { width: min(680px, 100%); padding: 42px; border: 1px solid #29324d; border-radius: 24px;
+      background: rgba(15,20,36,.92); box-shadow: 0 24px 80px #0008; }
+    .brand { font-size: 14px; font-weight: 800; letter-spacing: .18em; color: #7dd3fc; }
+    h1 { margin: 14px 0 8px; font-size: clamp(36px, 8vw, 64px); line-height: .95; }
+    p { color: #b6bfd8; font-size: 18px; line-height: 1.6; }
+    .status { display: flex; gap: 10px; align-items: center; margin: 28px 0; padding: 16px 18px;
+      border-radius: 14px; background: #111a2d; color: #dfffea; font-weight: 700; }
+    .dot { width: 11px; height: 11px; border-radius: 50%; background: #2ee68b; box-shadow: 0 0 18px #2ee68b; }
+    a { color: #8bdcff; text-decoration: none; font-weight: 700; }
+    small { color: #77819c; }
+  </style>
+</head>
+<body><main>
+  <div class="brand">AI BRIDGE</div>
+  <h1>Cloud relay is online.</h1>
+  <p>Connect Roblox Studio to AI clients through one secure bridge.</p>
+  <div class="status"><span class="dot"></span> Service operational</div>
+  <p><a href="/docs">Open API documentation &rarr;</a></p>
+  <small>AI Bridge Cloud v0.1.0</small>
+</main></body></html>"""
 
 
 @app.get("/health")

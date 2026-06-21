@@ -11,6 +11,13 @@ from app import app
 client = TestClient(app)
 
 
+def test_home_and_health():
+    home = client.get("/")
+    assert home.status_code == 200
+    assert "Cloud relay is online" in home.text
+    assert client.get("/health").json()["ok"] is True
+
+
 def test_pair_command_roundtrip():
     registered = client.post("/v1/plugins/register", json={"name": "Studio test"})
     assert registered.status_code == 200
