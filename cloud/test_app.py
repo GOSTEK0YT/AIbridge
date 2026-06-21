@@ -1,6 +1,9 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
+import base64
+import hashlib
 import time
+from urllib.parse import parse_qs, urlparse
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["AI_BRIDGE_API_KEY"] = "test-key"
@@ -19,6 +22,10 @@ def test_home_and_health():
     assert "Cloud relay is online" in home.text
     assert client.get("/health").json()["ok"] is True
     assert client.get("/connect").status_code == 200
+    assert client.get("/.well-known/oauth-authorization-server").json()["registration_endpoint"].endswith("/oauth/register")
+    unauthorized_mcp = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    assert unauthorized_mcp.status_code == 401
+    assert "resource_metadata" in unauthorized_mcp.headers["www-authenticate"]
 
 
 def test_pair_command_roundtrip():
@@ -69,3 +76,45 @@ def test_pair_command_roundtrip():
         mcp_result = future.result(timeout=5)
     assert mcp_result.status_code == 200
     assert "Test place" in mcp_result.json()["result"]["content"][0]["text"]
+
+    redirect_uri = "https://claude.ai/api/mcp/auth_callback"
+    oauth_client = client.post("/oauth/register", json={
+        "client_name": "Claude test",
+        "redirect_uris": [redirect_uri],
+        "token_endpoint_auth_method": "none",
+    })
+    assert oauth_client.status_code == 200
+    client_id = oauth_client.json()["client_id"]
+    verifier = "test-verifier-with-enough-random-characters-1234567890"
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    authorize_params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": "test-state",
+        "scope": "mcp",
+    }
+    authorize_page = client.get("/oauth/authorize", params=authorize_params)
+    assert authorize_page.status_code == 200
+    authorized = client.post(
+        "/oauth/authorize",
+        data={**authorize_params, "bridge_token": claimed.json()["client_token"]},
+        follow_redirects=False,
+    )
+    assert authorized.status_code == 303
+    auth_code = parse_qs(urlparse(authorized.headers["location"]).query)["code"][0]
+    exchanged = client.post("/oauth/token", data={
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code": auth_code,
+        "code_verifier": verifier,
+    })
+    assert exchanged.status_code == 200
+    oauth_headers = {"Authorization": "Bearer " + exchanged.json()["access_token"]}
+    oauth_mcp = client.post("/mcp", headers=oauth_headers, json={
+        "jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}
+    })
+    assert oauth_mcp.status_code == 200

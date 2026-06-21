@@ -20,8 +20,10 @@ osobom — pozwala on edytować sparowany projekt przez obsługiwane operacje.
 
 ## 3. Podłącz AI
 
-- **Klient MCP:** endpoint `https://ai-bridge-cloud.onrender.com/mcp`, nagłówek
-  `Authorization: Bearer <token>`.
+- **Claude:** dodaj `https://ai-bridge-cloud.onrender.com/mcp` jako własny
+  konektor. Na stronie zgody AI Bridge wklej prywatny token i zatwierdź dostęp.
+- **Inny klient MCP:** użyj tego samego endpointu oraz nagłówka
+  `Authorization: Bearer <token>`, jeśli klient obsługuje własne nagłówki.
 - **ChatGPT Custom GPT:** zaimportuj
   `https://ai-bridge-cloud.onrender.com/ai-openapi.json` w sekcji Actions,
   wybierz uwierzytelnianie API Key typu Bearer i wklej token.

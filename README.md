@@ -31,6 +31,7 @@ Plugin celowo nie wykonuje dowolnego kodu Luau przesłanego przez internet.
 
 - Strona i parowanie: <https://ai-bridge-cloud.onrender.com/connect>
 - Remote MCP: `https://ai-bridge-cloud.onrender.com/mcp`
+- OAuth dla Claude: DCR + Authorization Code z PKCE
 - Schemat dla ChatGPT Actions: <https://ai-bridge-cloud.onrender.com/ai-openapi.json>
 - Dokumentacja API: <https://ai-bridge-cloud.onrender.com/docs>
 

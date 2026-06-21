@@ -10,10 +10,13 @@ import secrets
 import string
 import uuid
 import asyncio
+import base64
 from datetime import datetime, timedelta, timezone
+import html
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
@@ -69,6 +72,33 @@ class ClientCredential(Base):
     device: Mapped[Device] = relationship(back_populates="clients")
 
 
+class OAuthClient(Base):
+    __tablename__ = "oauth_clients"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), default="Claude")
+    redirect_uris: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OAuthCode(Base):
+    __tablename__ = "oauth_codes"
+    code_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    client_id: Mapped[str] = mapped_column(ForeignKey("oauth_clients.id"), index=True)
+    credential_id: Mapped[str] = mapped_column(ForeignKey("client_credentials.id"), index=True)
+    redirect_uri: Mapped[str] = mapped_column(String(500))
+    code_challenge: Mapped[str] = mapped_column(String(128))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class OAuthAccessToken(Base):
+    __tablename__ = "oauth_access_tokens"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    credential_id: Mapped[str] = mapped_column(ForeignKey("client_credentials.id"), index=True)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Command(Base):
     __tablename__ = "commands"
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -84,7 +114,7 @@ class Command(Base):
 
 
 Base.metadata.create_all(engine)
-app = FastAPI(title="AI Bridge Cloud", version="0.2.0")
+app = FastAPI(title="AI Bridge Cloud", version="0.3.0")
 
 
 def database():
@@ -124,15 +154,25 @@ def bearer_token(authorization: str | None, missing_message: str) -> str:
 
 
 def authenticate_client(authorization: str | None, db: Session) -> ClientCredential:
-    raw_token = bearer_token(authorization, "Missing AI client authorization")
+    auth_headers = {"WWW-Authenticate": 'Bearer resource_metadata="https://ai-bridge-cloud.onrender.com/.well-known/oauth-protected-resource", scope="mcp"'}
+    try:
+        raw_token = bearer_token(authorization, "Missing AI client authorization")
+    except HTTPException as exc:
+        exc.headers = auth_headers
+        raise
     try:
         credential_id, secret = raw_token.split(".", 1)
     except ValueError as exc:
-        raise HTTPException(401, "Invalid AI client authorization") from exc
+        raise HTTPException(401, "Invalid AI client authorization", headers=auth_headers) from exc
     credential = db.get(ClientCredential, credential_id)
-    if not credential or not hmac.compare_digest(credential.secret_hash, digest(secret)):
-        raise HTTPException(401, "Invalid AI client authorization")
-    return credential
+    if credential and hmac.compare_digest(credential.secret_hash, digest(secret)):
+        return credential
+    oauth_token = db.get(OAuthAccessToken, credential_id)
+    if oauth_token and hmac.compare_digest(oauth_token.secret_hash, digest(secret)):
+        credential = db.get(ClientCredential, oauth_token.credential_id)
+        if credential:
+            return credential
+    raise HTTPException(401, "Invalid AI client authorization", headers=auth_headers)
 
 
 def require_api_key(x_ai_bridge_key: str | None = Header(default=None)) -> None:
@@ -148,6 +188,14 @@ class RegisterRequest(BaseModel):
 class PairClaim(BaseModel):
     code: str = Field(min_length=6, max_length=6)
     client_name: str = Field(default="AI client", max_length=100)
+
+
+class OAuthRegistration(BaseModel):
+    redirect_uris: list[str]
+    client_name: str = Field(default="Claude", max_length=200)
+    token_endpoint_auth_method: str = "none"
+    grant_types: list[str] = Field(default_factory=lambda: ["authorization_code"])
+    response_types: list[str] = Field(default_factory=lambda: ["code"])
 
 
 class CreateCommand(BaseModel):
@@ -222,7 +270,7 @@ def home():
   <div class="status"><span class="dot"></span> Service operational</div>
   <p><a href="/connect">Connect Roblox Studio &rarr;</a></p>
   <p><a href="/docs">Open API documentation</a></p>
-  <small>AI Bridge Cloud v0.2.0</small>
+  <small>AI Bridge Cloud v0.3.0</small>
 </main></body></html>"""
 
 
@@ -239,7 +287,7 @@ main{width:min(720px,100%);padding:38px;border:1px solid #29324d;border-radius:2
 <p>Open the AI Bridge plugin in Roblox Studio, click <b>Connect</b>, then enter the six-digit code below.</p>
 <div class="row"><input id="code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="000000"><button id="pair">Connect</button></div>
 <div id="message"></div>
-<section id="result" class="card"><div class="ok">✓ Roblox Studio connected</div><p>Your private AI client token:</p><code id="token"></code><button class="copy" id="copy">Copy token</button><p><b>Claude, Cursor and other MCP clients</b></p><code>https://ai-bridge-cloud.onrender.com/mcp</code><p>Use the token as an <b>Authorization: Bearer</b> header.</p><p><b>ChatGPT Custom GPT Action</b></p><code>https://ai-bridge-cloud.onrender.com/ai-openapi.json</code><p>Import this schema in GPT Actions, choose API Key authentication, select Bearer, and paste the private token.</p><div class="links"><a href="/docs">REST API docs</a><a href="/">Service status</a></div></section>
+<section id="result" class="card"><div class="ok">✓ Roblox Studio connected</div><p>Your private AI client token:</p><code id="token"></code><button class="copy" id="copy">Copy token</button><p><b>Claude</b></p><code>https://ai-bridge-cloud.onrender.com/mcp</code><p>Add this URL as a custom connector. Claude will open a secure AI Bridge authorization page; paste the token there and approve access.</p><p><b>Cursor and MCP clients with custom headers</b></p><p>Use the same MCP URL and the token as an <b>Authorization: Bearer</b> header.</p><p><b>ChatGPT Custom GPT Action</b></p><code>https://ai-bridge-cloud.onrender.com/ai-openapi.json</code><p>Import this schema in GPT Actions, choose API Key authentication, select Bearer, and paste the private token.</p><div class="links"><a href="/docs">REST API docs</a><a href="/">Service status</a></div></section>
 </main><script>
 const code=document.querySelector('#code'),pair=document.querySelector('#pair'),message=document.querySelector('#message'),result=document.querySelector('#result'),token=document.querySelector('#token');
 const preset=new URLSearchParams(location.search).get('code');if(preset)code.value=preset.replace(/\\D/g,'').slice(0,6);
@@ -250,7 +298,124 @@ document.querySelector('#copy').onclick=async()=>{await navigator.clipboard.writ
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "ai-bridge-cloud", "version": "0.2.0"}
+    return {"ok": True, "service": "ai-bridge-cloud", "version": "0.3.0"}
+
+
+@app.get("/.well-known/oauth-protected-resource", include_in_schema=False)
+@app.get("/.well-known/oauth-protected-resource/mcp", include_in_schema=False)
+def oauth_protected_resource():
+    return {
+        "resource": "https://ai-bridge-cloud.onrender.com/mcp",
+        "authorization_servers": ["https://ai-bridge-cloud.onrender.com"],
+        "scopes_supported": ["mcp"],
+        "bearer_methods_supported": ["header"],
+    }
+
+
+@app.get("/.well-known/oauth-authorization-server", include_in_schema=False)
+@app.get("/.well-known/openid-configuration", include_in_schema=False)
+def oauth_server_metadata():
+    base = "https://ai-bridge-cloud.onrender.com"
+    return {
+        "issuer": base,
+        "authorization_endpoint": base + "/oauth/authorize",
+        "token_endpoint": base + "/oauth/token",
+        "registration_endpoint": base + "/oauth/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "token_endpoint_auth_methods_supported": ["none"],
+        "code_challenge_methods_supported": ["S256"],
+        "scopes_supported": ["mcp"],
+    }
+
+
+def valid_redirect_uri(uri: str) -> bool:
+    parsed = urlparse(uri)
+    if parsed.scheme == "https" and parsed.netloc:
+        return True
+    return parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
+
+
+@app.post("/oauth/register", include_in_schema=False)
+def oauth_register(payload: OAuthRegistration, db: Session = Depends(database)):
+    if not payload.redirect_uris or not all(valid_redirect_uri(uri) for uri in payload.redirect_uris):
+        raise HTTPException(400, "invalid_redirect_uri")
+    if payload.token_endpoint_auth_method != "none":
+        raise HTTPException(400, "Only public PKCE clients are supported")
+    client_id = "aib_" + secrets.token_urlsafe(24)
+    client = OAuthClient(id=client_id, name=payload.client_name, redirect_uris=payload.redirect_uris)
+    db.add(client)
+    db.commit()
+    return {
+        "client_id": client_id,
+        "client_name": payload.client_name,
+        "redirect_uris": payload.redirect_uris,
+        "token_endpoint_auth_method": "none",
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+    }
+
+
+def oauth_authorization_html(fields: dict[str, str], error: str = "") -> str:
+    hidden = "".join(
+        f'<input type="hidden" name="{html.escape(key, quote=True)}" value="{html.escape(value, quote=True)}">'
+        for key, value in fields.items()
+    )
+    error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
+    destination = urlparse(fields.get("redirect_uri", "")).hostname or "Claude"
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize Claude · AI Bridge</title><style>*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#070a13;color:#f7f8ff;font-family:Inter,system-ui,sans-serif}}main{{width:min(600px,100%);padding:38px;border:1px solid #29324d;border-radius:24px;background:#0f1424;box-shadow:0 24px 80px #0008}}.brand{{color:#7dd3fc;font-size:13px;font-weight:900;letter-spacing:.18em}}h1{{font-size:40px;margin:12px 0}}p{{color:#b6bfd8;line-height:1.6}}input,button{{width:100%;padding:15px;border-radius:12px;font:inherit}}input{{border:1px solid #33405f;background:#080d19;color:white}}button{{margin-top:12px;border:0;background:linear-gradient(135deg,#1aa7ff,#7c3cff);color:white;font-weight:800;cursor:pointer}}.warning{{padding:14px;border-radius:12px;background:#181d2c;color:#dbe5ff}}.error{{color:#ff8493}}</style></head><body><main><div class="brand">AI BRIDGE</div><h1>Authorize Claude</h1><p>Claude wants to use AI Bridge tools to inspect and edit your connected Roblox Studio project.</p><div class="warning">Only approve this if you started the connection. Callback: <b>{html.escape(destination)}</b></div>{error_html}<form method="post" action="/oauth/authorize">{hidden}<p>Paste the private AI client token from the AI Bridge pairing page:</p><input type="password" name="bridge_token" required autocomplete="off" placeholder="Private AI Bridge token"><button type="submit">Allow Claude</button></form></main></body></html>"""
+
+
+@app.get("/oauth/authorize", response_class=HTMLResponse, include_in_schema=False)
+def oauth_authorize_page(client_id: str, redirect_uri: str, response_type: str, code_challenge: str, code_challenge_method: str, state: str = "", scope: str = "mcp", db: Session = Depends(database)):
+    client = db.get(OAuthClient, client_id)
+    if not client or redirect_uri not in client.redirect_uris or response_type != "code" or code_challenge_method != "S256":
+        raise HTTPException(400, "Invalid OAuth authorization request")
+    fields = {"client_id": client_id, "redirect_uri": redirect_uri, "response_type": response_type, "code_challenge": code_challenge, "code_challenge_method": code_challenge_method, "state": state, "scope": scope}
+    return oauth_authorization_html(fields)
+
+
+@app.post("/oauth/authorize", response_class=HTMLResponse, include_in_schema=False)
+async def oauth_authorize_submit(request: Request, db: Session = Depends(database)):
+    form = {key: values[0] for key, values in parse_qs((await request.body()).decode()).items()}
+    fields = {key: form.get(key, "") for key in ("client_id", "redirect_uri", "response_type", "code_challenge", "code_challenge_method", "state", "scope")}
+    client = db.get(OAuthClient, fields["client_id"])
+    if not client or fields["redirect_uri"] not in client.redirect_uris or fields["code_challenge_method"] != "S256":
+        raise HTTPException(400, "Invalid OAuth authorization request")
+    try:
+        credential = authenticate_client("Bearer " + form.get("bridge_token", ""), db)
+    except HTTPException:
+        return HTMLResponse(oauth_authorization_html(fields, "The AI Bridge token is invalid."), status_code=401)
+    raw_code = secrets.token_urlsafe(32)
+    db.add(OAuthCode(code_hash=digest(raw_code), client_id=client.id, credential_id=credential.id, redirect_uri=fields["redirect_uri"], code_challenge=fields["code_challenge"], expires_at=utcnow() + timedelta(minutes=5)))
+    db.commit()
+    query = urlencode({"code": raw_code, "state": fields["state"]})
+    return RedirectResponse(fields["redirect_uri"] + ("&" if "?" in fields["redirect_uri"] else "?") + query, status_code=303)
+
+
+@app.post("/oauth/token", include_in_schema=False)
+async def oauth_token(request: Request, db: Session = Depends(database)):
+    form = {key: values[0] for key, values in parse_qs((await request.body()).decode()).items()}
+    if form.get("grant_type") != "authorization_code":
+        return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+    grant = db.get(OAuthCode, digest(form.get("code", "")))
+    client = db.get(OAuthClient, form.get("client_id", ""))
+    expires_at = grant.expires_at if grant else None
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    verifier = form.get("code_verifier", "")
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    if not grant or not client or grant.used or grant.client_id != client.id or grant.redirect_uri != form.get("redirect_uri") or not expires_at or expires_at < utcnow() or not hmac.compare_digest(grant.code_challenge, challenge):
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+    grant.used = True
+    token_id = str(uuid.uuid4())
+    secret = secrets.token_urlsafe(32)
+    db.add(OAuthAccessToken(id=token_id, credential_id=grant.credential_id, secret_hash=digest(secret)))
+    db.commit()
+    return JSONResponse(
+        {"access_token": f"{token_id}.{secret}", "token_type": "Bearer", "scope": "mcp"},
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
 
 
 @app.get("/ai-openapi.json", include_in_schema=False)
@@ -410,7 +575,7 @@ async def mcp_endpoint(request: Request, authorization: str | None = Header(defa
         result = {
             "protocolVersion": "2025-06-18",
             "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "AI Bridge", "version": "0.2.0"},
+            "serverInfo": {"name": "AI Bridge", "version": "0.3.0"},
         }
     elif method == "tools/list":
         result = {"tools": MCP_TOOLS}
@@ -437,6 +602,12 @@ async def mcp_endpoint(request: Request, authorization: str | None = Header(defa
     else:
         return JSONResponse({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "Method not found"}}, status_code=404)
     return JSONResponse({"jsonrpc": "2.0", "id": request_id, "result": result})
+
+
+@app.get("/mcp", include_in_schema=False)
+def mcp_get(authorization: str | None = Header(default=None), db: Session = Depends(database)):
+    authenticate_client(authorization, db)
+    return JSONResponse({"error": "Use Streamable HTTP POST for MCP requests"}, status_code=405, headers={"Allow": "POST"})
 
 
 @app.post("/v1/commands", dependencies=[Depends(require_api_key)])

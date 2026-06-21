@@ -26,5 +26,10 @@ Zdalny endpoint MCP znajduje się pod `/mcp` i używa tego samego nagłówka Bea
 Udostępnia narzędzia: `ping`, `get_tree`, `create_instance`, `set_properties`,
 `move_instance` i `delete_instance`.
 
+Claude korzysta ze standardowego OAuth 2.0 Authorization Code + PKCE i Dynamic
+Client Registration. Dokumenty discovery są dostępne pod ścieżkami
+`/.well-known/oauth-protected-resource` oraz
+`/.well-known/oauth-authorization-server`.
+
 Kod parowania wygasa po 10 minutach i można go użyć tylko raz. Token pluginu i
 token klienta są niezależne; klient AI nigdy nie otrzymuje sekretu pluginu.
